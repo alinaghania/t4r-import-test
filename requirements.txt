@@ -1,0 +1,44 @@
+# ============================================================================
+#  Transformers4Rec
+# Testé sur macOS 
+# ============================================================================
+
+# Framework Web
+streamlit==1.35.0 # optionel
+
+pandas==2.0.3
+numpy==1.24.3
+
+plotly==5.17.0
+
+scikit-learn==1.6.0
+
+python-dateutil==2.8.2
+typing-extensions==4.7.1
+
+pyarrow==12.0.1
+
+# PyTorch (CPU - Compatible Apple Silicon)
+torch==2.0.1
+torchvision==0.15.2
+torchaudio==2.0.2
+
+# Hugging Face Transformers (Requis pour Transformers4Rec)
+transformers==4.36.0
+
+# NVIDIA Merlin Ecosystem
+merlin-core==23.12.0
+merlin-dataloader==23.12.0
+merlin-schema==23.12.0
+
+# Transformers4Rec (Recommandations Séquentielles)
+transformers4rec==23.12.0
+
+# Dépendances Supplémentaires
+pydantic==1.10.12
+fsspec==2023.6.0
+
+# Visualisations Avancées (Optionnel)
+matplotlib==3.7.2
+seaborn==0.12.2
+
