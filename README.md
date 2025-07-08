@@ -703,7 +703,7 @@ copies of the Software.
 
 ### 🆘 Aide et Support
 
-- **Email**: alina.ghani@accenture.com
+- **Email**: 
 - **Documentation**: Voir ce README et les docstrings
 - **Issues**: Utiliser le système d'issues GitHub
 - **Wiki**: Documentation technique détaillée
