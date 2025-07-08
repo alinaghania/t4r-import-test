@@ -5,8 +5,6 @@ MODULE: MODÈLE TRANSFORMER POUR RECOMMANDATION
 Ce module définit l'architecture du modèle Transformer pour
 la recommandation de produits.
 
-Auteur: Assistant AI & Alina Ghani
-Date: Juillet 2025
 """
 
 import torch
