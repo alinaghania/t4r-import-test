@@ -5,8 +5,6 @@ MODULE: ENTRAÎNEUR DE MODÈLE
 Ce module gère l'entraînement du modèle Transformer pour
 la recommandation de produits.
 
-Auteur: Assistant AI & Alina Ghani
-Date: Juillet 2025
 """
 
 import torch
