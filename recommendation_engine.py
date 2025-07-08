@@ -5,8 +5,6 @@ MODULE: MOTEUR DE RECOMMANDATION
 Ce module gère l'inférence et les prédictions du modèle Transformer
 pour fournir des recommandations de produits en temps réel.
 
-Auteur: Assistant AI & Alina Ghani
-Date: Juillet 2025
 """
 
 import torch
