@@ -5,8 +5,6 @@ MODULE: PREPROCESSEUR DE DONNÉES
 Ce module transforme les données de transactions brutes en séquences
 prêtes pour l'entraînement du modèle Transformer.
 
-Auteur: Assistant AI & Alina Ghani
-Date: Juillet 2025
 """
 
 import os
