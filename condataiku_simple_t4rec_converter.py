@@ -1,31 +1,23 @@
-#!/usr/bin/env python3
-"""
-CONVERSION RAPIDE POUR T4REC - SIMPLE ET DIRECT
-================================================
-
-Script basique pour convertir toutes les colonnes array en séquences T4Rec
-et faire tourner le modèle rapidement.
-"""
-
 import dataiku
 import numpy as np
 import pandas as pd
 import json
 import torch
+import os
 from typing import List, Tuple, Dict, Any
 
 
-def load_dataiku_dataset(dataset_name: str = "t4_rec_df") -> pd.DataFrame:
+def load_input_dataset() -> pd.DataFrame:
     """
-    Charge le dataset t4_rec_df depuis Dataiku
+    Charge le dataset d'input depuis Dataiku
     """
     try:
-        dataset = dataiku.Dataset(dataset_name)
+        dataset = dataiku.Dataset("t4_rec_df")
         df = dataset.get_dataframe()
-        print(f"✅ Dataset '{dataset_name}' chargé: {df.shape}")
+        print(f"✅ Dataset input 't4_rec_df' chargé: {df.shape}")
         return df
     except Exception as e:
-        print(f"❌ Erreur chargement '{dataset_name}': {e}")
+        print(f"❌ Erreur chargement input: {e}")
         raise
 
 
@@ -188,16 +180,58 @@ def create_t4rec_format(sequences: np.ndarray) -> Tuple[torch.Tensor, torch.Tens
     return input_tensor, target_tensor
 
 
-def save_t4rec_data(
-    inputs: torch.Tensor,
-    targets: torch.Tensor,
-    output_path: str = "data/simple_t4rec_data.pt",
-) -> None:
+def create_output_dataframe(
+    inputs: torch.Tensor, targets: torch.Tensor, original_df: pd.DataFrame, stats: Dict
+) -> pd.DataFrame:
     """
-    Sauvegarde les données au format T4Rec
+    Crée le DataFrame de sortie pour Dataiku (VERSION CSV)
     """
-    print(f"💾 Sauvegarde vers '{output_path}'...")
+    print(f"📋 Création du DataFrame CSV pour Dataiku...")
 
+    # Convertir les tenseurs en numpy pour le DataFrame
+    inputs_np = inputs.numpy()
+    targets_np = targets.numpy()
+
+    # Créer le DataFrame de sortie
+    output_data = []
+
+    for i in range(len(inputs_np)):
+        # Créer une ligne par séquence
+        row_data = {
+            "sequence_id": i,
+            "sequence_length": len(inputs_np[i]),
+            "num_unique_items": stats.get("num_unique_items", 1000),
+        }
+
+        # Ajouter les inputs individuels comme colonnes
+        for j, val in enumerate(inputs_np[i]):
+            row_data[f"input_{j + 1}"] = int(val)
+
+        # Ajouter les targets individuels comme colonnes
+        for j, val in enumerate(targets_np[i]):
+            row_data[f"target_{j + 1}"] = int(val)
+
+        output_data.append(row_data)
+
+    output_df = pd.DataFrame(output_data)
+
+    print(f"✅ DataFrame CSV créé: {output_df.shape}")
+    print(
+        f"  📊 Colonnes: {list(output_df.columns[:5])}... (+ {len(output_df.columns) - 5} autres)"
+    )
+
+    return output_df
+
+
+def save_pytorch_tensors(
+    inputs: torch.Tensor, targets: torch.Tensor, stats: Dict
+) -> str:
+    """
+    Sauvegarde les tenseurs PyTorch dans un fichier .pt prêt pour l'entraînement
+    """
+    print(f"💾 Sauvegarde des tenseurs PyTorch...")
+
+    # Créer le dictionnaire avec toutes les données nécessaires pour l'entraînement
     data_dict = {
         "inputs": inputs,
         "targets": targets,
@@ -208,23 +242,95 @@ def save_t4rec_data(
                 torch.max(torch.cat([inputs.flatten(), targets.flatten()])).item()
             ),
             "creation_timestamp": pd.Timestamp.now().isoformat(),
+            "selected_columns": stats.get("selected_columns", []),
+            "value_range": stats.get("value_range", (0, 1000)),
+            "mean_value": stats.get("mean_value", 0.0),
         },
     }
 
-    torch.save(data_dict, output_path)
-    print(f"✅ Données sauvegardées: {inputs.shape[0]} séquences")
+    # Nom du fichier simple
+    filename = "t4rec_training_data.pt"
+
+    # Sauvegarde
+    torch.save(data_dict, filename)
+    print(f"✅ Tenseurs PyTorch sauvegardés: {filename}")
+    print(f"  📦 Contenu: inputs {inputs.shape}, targets {targets.shape}")
+
+    return filename
+
+
+def save_to_output_dataset(df: pd.DataFrame) -> None:
+    """
+    Sauvegarde le DataFrame vers le dataset de sortie Dataiku
+    """
+    try:
+        output_dataset = dataiku.Dataset("t4_rec_df_clean")
+        output_dataset.write_with_schema(df)
+        print(f"✅ Dataset CSV 't4_rec_df_clean' créé avec {len(df)} lignes")
+    except Exception as e:
+        print(f"❌ Erreur sauvegarde output: {e}")
+        raise
+
+
+def create_usage_guide(pytorch_file: str, stats: Dict) -> None:
+    """
+    Crée un guide d'utilisation pour charger les données dans le modèle
+    """
+    guide = f"""
+# GUIDE D'UTILISATION T4REC
+========================
+
+## Fichiers générés:
+1. Dataset Dataiku: 't4_rec_df_clean' (visualisation/debug)
+2. Fichier PyTorch: '{pytorch_file}' (entraînement direct)
+
+## Charger les données pour l'entraînement:
+```python
+import torch
+
+# Charger les données T4Rec
+data = torch.load('{pytorch_file}')
+inputs = data['inputs']      # torch.Size([{stats["num_sequences"]}, {stats["sequence_length"] - 1}])
+targets = data['targets']    # torch.Size([{stats["num_sequences"]}, {stats["sequence_length"] - 1}])
+metadata = data['metadata']
+
+# Utiliser avec ton modèle T4Rec
+from src.transformer_model import TransformerRecommendationModel
+from src.model_trainer import ModelTrainer
+
+model = TransformerRecommendationModel(
+    num_items=metadata['num_unique_items'],  # {stats.get("num_unique_items", 1000)}
+    embedding_dim=64,
+    seq_length={stats["sequence_length"]}
+)
+
+trainer = ModelTrainer(model)
+trainer.train(inputs, targets, num_epochs=5)
+```
+
+## Données disponibles:
+- Séquences d'origine: {stats["num_sequences"]}
+- Longueur de séquence: {stats["sequence_length"]}
+- Range item_ids: 1 - {stats.get("num_unique_items", 1000)}
+- Colonnes utilisées: {len(stats.get("selected_columns", []))}
+"""
+
+    with open("t4rec_usage_guide.txt", "w", encoding="utf-8") as f:
+        f.write(guide)
+
+    print(f"📚 Guide d'utilisation créé: t4rec_usage_guide.txt")
 
 
 def main():
     """
-    Pipeline principal de conversion
+    Pipeline principal du recipe Dataiku
     """
-    print("🚀 DÉMARRAGE CONVERSION SIMPLE T4REC")
+    print("🚀 DÉMARRAGE RECIPE DATAIKU T4REC")
     print("=" * 50)
 
     try:
-        # 1. Charger les données
-        df = load_dataiku_dataset()
+        # 1. Charger les données d'input
+        df = load_input_dataset()
         print(f"📊 Dataset initial: {df.shape}")
 
         # 2. Convertir les arrays JSON
@@ -237,22 +343,38 @@ def main():
         # 4. Convertir au format T4Rec
         inputs, targets = create_t4rec_format(sequences)
 
-        # 5. Sauvegarder
-        save_t4rec_data(inputs, targets)
+        # Ajouter les stats pour le DataFrame de sortie
+        stats["num_unique_items"] = int(
+            torch.max(torch.cat([inputs.flatten(), targets.flatten()])).item()
+        )
 
-        print("\n🎉 CONVERSION TERMINÉE AVEC SUCCÈS!")
+        # 5. DOUBLE SAUVEGARDE
+
+        # 5a. Créer le DataFrame CSV pour Dataiku
+        output_df = create_output_dataframe(inputs, targets, df, stats)
+        save_to_output_dataset(output_df)
+
+        # 5b. Sauvegarder les tenseurs PyTorch pour l'entraînement
+        pytorch_file = save_pytorch_tensors(inputs, targets, stats)
+
+        # 6. Créer le guide d'utilisation
+        create_usage_guide(pytorch_file, stats)
+
+        print("\n🎉 RECIPE TERMINÉ AVEC SUCCÈS!")
         print("=" * 50)
-        print("📁 Fichier généré: data/simple_t4rec_data.pt")
-        print("🎯 Prêt pour l'entraînement T4Rec!")
+        print("📋 DOUBLE SORTIE CRÉÉE:")
+        print(f"  1. Dataset CSV Dataiku: 't4_rec_df_clean' ({len(output_df)} lignes)")
+        print(f"  2. Tenseurs PyTorch: '{pytorch_file}'")
+        print("  3. Guide d'usage: 't4rec_usage_guide.txt'")
+        print("\n🎯 PRÊT POUR L'ENTRAÎNEMENT!")
 
         # Test rapide de compatibilité
-        print("\n🔬 TEST RAPIDE:")
+        print("\n🔬 RÉSUMÉ TECHNIQUE:")
+        print(f"  - Séquences d'origine: {len(df)} → {len(output_df)} séquences T4Rec")
         print(f"  - Format inputs: {inputs.dtype} {inputs.shape}")
         print(f"  - Format targets: {targets.dtype} {targets.shape}")
-        print(
-            f"  - Range item_ids: 1 - {int(torch.max(torch.cat([inputs.flatten(), targets.flatten()])).item())}"
-        )
-        print("  ✅ Compatible avec T4Rec!")
+        print(f"  - Item ID range: 1 - {stats['num_unique_items']}")
+        print("  ✅ Compatible avec ton modèle T4Rec!")
 
     except Exception as e:
         print(f"\n❌ ERREUR: {e}")
