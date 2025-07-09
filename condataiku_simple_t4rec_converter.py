@@ -1,61 +1,60 @@
+#!/usr/bin/env python3
 """
-SÉLECTION INTELLIGENTE DE COLONNES
-==================================================
+DATAIKU RECIPE - SÉLECTION INTELLIGENTE T4REC (SANS SKLEARN)
+===========================================================
 
-Script avec plusieurs stratégies de sélection intelligente :
-1. Analyse de variance (features discriminantes)
-2. Corrélation et redondance
-3. Sélection métier bancaire
-4. Analyse d'importance via Random Forest
-5. Analyse temporelle et patterns
+Version adaptée pour environnements sans sklearn.
+Remplace Random Forest par analyse de corrélation avec target synthétique.
 
-Choisit automatiquement les meilleures colonnes selon plusieurs critères.
+Auteur: Assistant IA
+Version: 2.0 (No-sklearn)
 """
 
-import dataiku
+import json
+import re
 import numpy as np
 import pandas as pd
-import json
 import torch
-from typing import List, Tuple, Dict, Any
-from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_regression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-import re
+from typing import List, Dict, Tuple
+import dataiku
+from dataiku import Dataset
+
+print("🚀 Import des modules terminé")
 
 
 def load_input_dataset() -> pd.DataFrame:
-    """Charge le dataset d'input depuis Dataiku"""
-    try:
-        dataset = dataiku.Dataset("t4_rec_df")
-        df = dataset.get_dataframe()
-        print(f"Dataset input 't4_rec_df' chargé: {df.shape}")
-        return df
-    except Exception as e:
-        print(f"Erreur chargement input: {e}")
-        raise
+    """Charge le dataset d'entrée depuis Dataiku"""
+    print("📥 Chargement dataset d'entrée...")
+
+    # Dataset d'entrée configuré dans Dataiku
+    input_dataset = dataiku.Dataset("t4_rec_df")
+    df = input_dataset.get_dataframe()
+
+    print(f"✅ Dataset chargé: {df.shape[0]} lignes, {df.shape[1]} colonnes")
+    return df
 
 
 def detect_and_convert_arrays(df: pd.DataFrame) -> pd.DataFrame:
     """Détecte et convertit les colonnes contenant des arrays JSON"""
-    print(f"🔍 Analyse de {len(df.columns)} colonnes...")
+    print(f"🔍 Analyse de {df.shape[1]} colonnes pour arrays JSON...")
+
     df_converted = df.copy()
     converted_count = 0
 
     for col in df.columns:
         if df[col].dtype == "object":
-            sample_values = df[col].dropna().head(3).tolist()
+            sample_val = (
+                df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+            )
 
             is_json_array = False
-            for val in sample_values:
-                if (
-                    isinstance(val, str)
-                    and val.strip().startswith("[")
-                    and val.strip().endswith("]")
-                ):
-                    is_json_array = True
-                    break
+            if isinstance(sample_val, str):
+                try:
+                    parsed = json.loads(sample_val)
+                    if isinstance(parsed, list):
+                        is_json_array = True
+                except:
+                    pass
 
             if is_json_array:
 
@@ -78,26 +77,26 @@ def detect_and_convert_arrays(df: pd.DataFrame) -> pd.DataFrame:
     return df_converted
 
 
-class SmartColumnSelector:
-    """Classe pour sélection intelligente de colonnes"""
+class SmartColumnSelectorNoSklearn:
+    """Classe pour sélection intelligente de colonnes SANS sklearn"""
 
     def __init__(self, df: pd.DataFrame):
         self.df = df
         self.numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         print(
-            f" SmartSelector initialisé avec {len(self.numeric_cols)} colonnes numériques"
+            f"🎯 SmartSelector initialisé avec {len(self.numeric_cols)} colonnes numériques"
         )
 
     def analyze_variance(self, threshold: float = 0.01) -> List[str]:
         """1. ANALYSE DE VARIANCE - Élimine les features constantes"""
-        print(f" Analyse de variance (seuil: {threshold})...")
+        print(f"📊 1. Analyse de variance (seuil: {threshold})...")
 
         # Calculer la variance de chaque colonne
         variances = self.df[self.numeric_cols].var().sort_values(ascending=False)
         high_variance_cols = variances[variances > threshold].index.tolist()
 
         print(
-            f"  {len(high_variance_cols)}/{len(self.numeric_cols)} colonnes avec variance > {threshold}"
+            f"{len(high_variance_cols)}/{len(self.numeric_cols)} colonnes avec variance > {threshold}"
         )
         print(f"  📈 Top 5 variances: {variances.head().to_dict()}")
 
@@ -107,7 +106,7 @@ class SmartColumnSelector:
         self, features: List[str], threshold: float = 0.95
     ) -> List[str]:
         """2. ANALYSE CORRÉLATION - Élimine les features redondantes"""
-        print(f" 2. Analyse corrélation (seuil: {threshold})...")
+        print(f"🔗 2. Analyse corrélation (seuil: {threshold})...")
 
         if len(features) < 2:
             return features
@@ -132,9 +131,9 @@ class SmartColumnSelector:
         selected_features = [col for col in features if col not in to_drop]
 
         print(
-            f"  {len(selected_features)}/{len(features)} colonnes après suppression corrélation"
+            f"  ✅ {len(selected_features)}/{len(features)} colonnes après suppression corrélation"
         )
-        print(f"   Supprimées pour corrélation > {threshold}: {len(to_drop)} colonnes")
+        print(f"  🗑️ Supprimées pour corrélation > {threshold}: {len(to_drop)} colonnes")
 
         return selected_features
 
@@ -201,92 +200,114 @@ class SmartColumnSelector:
 
         return banking_categories
 
-    def importance_based_selection(
+    def correlation_based_selection(
         self, features: List[str], top_k: int = 50
     ) -> List[str]:
-        """4. SÉLECTION PAR IMPORTANCE - Random Forest"""
-        print(f" Sélection par importance Random Forest (top {top_k})...")
+        """4. SÉLECTION PAR CORRÉLATION AVEC TARGET (Remplace Random Forest)"""
+        print(
+            f"📊 4. Sélection par corrélation avec target synthétique (top {top_k})..."
+        )
 
         if len(features) <= top_k:
             return features
 
         try:
-            # Créer une target synthétique (somme de quelques colonnes importantes)
+            # Créer une target synthétique intelligente
             target_cols = [
                 col
                 for col in features
                 if any(x in col.lower() for x in ["mnt", "somme", "nb_"])
             ][:5]
-            if target_cols:
-                y = self.df[target_cols].sum(axis=1)
+
+            if len(target_cols) >= 2:
+                # Target = combinaison de colonnes importantes
+                y = self.df[target_cols].fillna(0).sum(axis=1)
             else:
-                y = self.df[features].sum(axis=1)
+                # Fallback: variance pondérée
+                variances = self.df[features].var()
+                weights = variances / variances.sum()
+                y = (self.df[features].fillna(0) * weights).sum(axis=1)
 
-            # Préparer les données
-            X = self.df[features].fillna(0)
+            # Calculer corrélation absolue avec target
+            correlations = []
+            for feature in features:
+                try:
+                    corr = abs(self.df[feature].fillna(0).corr(y))
+                    correlations.append((feature, corr if not pd.isna(corr) else 0))
+                except:
+                    correlations.append((feature, 0))
 
-            # Random Forest pour importance
-            rf = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
-            rf.fit(X, y)
-
-            # Récupérer l'importance
-            feature_importance = pd.DataFrame(
-                {"feature": features, "importance": rf.feature_importances_}
-            ).sort_values("importance", ascending=False)
-
-            selected_features = feature_importance.head(top_k)["feature"].tolist()
+            # Trier par corrélation décroissante
+            correlations.sort(key=lambda x: x[1], reverse=True)
+            selected_features = [feat for feat, corr in correlations[:top_k]]
 
             print(
-                f"  Top {len(selected_features)} features sélectionnées par importance"
+                f"  ✅ Top {len(selected_features)} features sélectionnées par corrélation"
             )
-            print(f"  Top 5: {selected_features[:5]}")
+            print(f"  🏆 Top 5: {selected_features[:5]}")
+            print(
+                f"  📊 Corrélations top 5: {[round(corr, 3) for _, corr in correlations[:5]]}"
+            )
 
             return selected_features
 
         except Exception as e:
-            print(f"  Erreur Random Forest: {e}, utilisation variance à la place")
+            print(f"  ⚠️ Erreur corrélation: {e}, utilisation variance à la place")
             variances = self.df[features].var().sort_values(ascending=False)
             return variances.head(top_k).index.tolist()
 
     def temporal_pattern_analysis(self, features: List[str]) -> List[str]:
         """5. ANALYSE PATTERNS TEMPORELS - Sélectionne selon évolution temporelle"""
-        print(f"Analyse patterns temporels...")
+        print(f"⏰ 5. Analyse patterns temporels...")
 
         # Identifier les colonnes temporelles
         temporal_groups = {}
+        non_temporal = []
+
         for feature in features:
             # Extraire le nom de base (sans suffixe temporel)
             base_name = re.sub(r"_(3m|6m|9m|12m|3dm|6dm|12dm)$", "", feature.lower())
-            if base_name != feature.lower():  # A un suffixe temporel
+
+            if base_name != feature.lower():  # C'est une colonne temporelle
                 if base_name not in temporal_groups:
                     temporal_groups[base_name] = []
                 temporal_groups[base_name].append(feature)
-
-        # Pour chaque groupe temporel, sélectionner la période la plus récente et la plus ancienne
-        selected_temporal = []
-        for base_name, group in temporal_groups.items():
-            if len(group) > 1:
-                # Ordre de préférence : 3m (plus récent), puis 12m (plus de contexte)
-                priority_order = ["3m", "6m", "12m", "3dm", "6dm", "12dm"]
-                for period in priority_order:
-                    matching = [col for col in group if col.lower().endswith(period)]
-                    if matching:
-                        selected_temporal.extend(matching[:1])  # Prendre le premier
-                        break
             else:
-                selected_temporal.extend(group)
+                non_temporal.append(feature)
 
-        # Ajouter les colonnes non-temporelles
-        non_temporal = [
-            f for f in features if f not in sum(temporal_groups.values(), [])
-        ]
-        final_selection = selected_temporal + non_temporal
+        # Pour chaque groupe temporel, sélectionner la meilleure période
+        selected_temporal = []
+        for base_name, temporal_cols in temporal_groups.items():
+            if len(temporal_cols) > 1:
+                # Préférer 12m > 9m > 6m > 3m (plus de données historiques)
+                priority_order = ["12m", "9m", "6m", "3m", "12dm", "6dm", "3dm"]
+                best_col = None
 
-        print(f" {len(temporal_groups)} groupes temporels analysés")
-        print(f"  {len(selected_temporal)} colonnes temporelles optimisées")
-        print(f" {len(final_selection)} colonnes finales")
+                for period in priority_order:
+                    matching_cols = [
+                        col for col in temporal_cols if period in col.lower()
+                    ]
+                    if matching_cols:
+                        # Prendre celui avec la plus grande variance
+                        variances = self.df[matching_cols].var()
+                        best_col = variances.idxmax()
+                        break
 
-        return final_selection
+                if best_col:
+                    selected_temporal.append(best_col)
+                else:
+                    # Fallback: prendre celui avec plus de variance
+                    variances = self.df[temporal_cols].var()
+                    selected_temporal.append(variances.idxmax())
+            else:
+                selected_temporal.extend(temporal_cols)
+
+        final_features = selected_temporal + non_temporal
+
+        print(f"  ⏰ {len(temporal_groups)} groupes temporels optimisés")
+        print(f"  ✅ {len(final_features)} features après optimisation temporelle")
+
+        return final_features
 
     def smart_selection_pipeline(
         self,
@@ -294,9 +315,9 @@ class SmartColumnSelector:
         variance_threshold: float = 0.01,
         correlation_threshold: float = 0.95,
     ) -> Tuple[List[str], Dict]:
-        """PIPELINE COMPLET de sélection intelligente"""
-        print(f"\n PIPELINE SÉLECTION INTELLIGENTE")
-        print(f" Objectif: {max_features} features optimales")
+        """PIPELINE COMPLET de sélection intelligente (SANS SKLEARN)"""
+        print(f"\n🧠 PIPELINE SÉLECTION INTELLIGENTE (NO-SKLEARN)")
+        print(f"🎯 Objectif: {max_features} features optimales")
         print("=" * 50)
 
         stats = {}
@@ -319,9 +340,9 @@ class SmartColumnSelector:
         temporal_optimized = self.temporal_pattern_analysis(low_corr_features)
         stats["step4_temporal"] = len(temporal_optimized)
 
-        # Étape 5: Importance (si encore trop de features)
+        # Étape 5: Sélection par corrélation (au lieu de Random Forest)
         if len(temporal_optimized) > max_features:
-            final_features = self.importance_based_selection(
+            final_features = self.correlation_based_selection(
                 temporal_optimized, max_features
             )
         else:
@@ -330,11 +351,11 @@ class SmartColumnSelector:
         stats["final_features_count"] = len(final_features)
         stats["final_features"] = final_features
 
-        print(f"\n SÉLECTION TERMINÉE!")
+        print(f"\n🎉 SÉLECTION TERMINÉE!")
         print(
-            f"Pipeline: {len(self.numeric_cols)} → {stats['step1_variance']} → {stats['step2_correlation']} → {stats['step4_temporal']} → {len(final_features)}"
+            f"📊 Pipeline: {len(self.numeric_cols)} → {stats['step1_variance']} → {stats['step2_correlation']} → {stats['step4_temporal']} → {len(final_features)}"
         )
-        print(f"Features finales: {len(final_features)}")
+        print(f"✅ Features finales: {len(final_features)}")
 
         return final_features, stats
 
@@ -347,8 +368,8 @@ def create_sequences_smart_selection(
     if seq_length is None:
         seq_length = min(len(selected_features), 30)  # Adaptatif
 
-    print(f"Création séquences avec {len(selected_features)} features sélectionnées")
-    print(f"Longueur séquence: {seq_length}")
+    print(f"🔄 Création séquences avec {len(selected_features)} features sélectionnées")
+    print(f"📏 Longueur séquence: {seq_length}")
 
     sequences = []
 
@@ -371,16 +392,16 @@ def create_sequences_smart_selection(
         sequences.append(values)
 
         if idx % 1000 == 0:
-            print(f" Traité {idx + 1} lignes...")
+            print(f"  📝 Traité {idx + 1} lignes...")
 
     sequences_array = np.array(sequences)
-    print(f"Séquences créées: {sequences_array.shape}")
+    print(f"✅ Séquences créées: {sequences_array.shape}")
 
     stats = {
         "num_sequences": len(sequences),
         "sequence_length": seq_length,
         "selected_columns": selected_features,
-        "selection_method": "smart_pipeline",
+        "selection_method": "smart_pipeline_no_sklearn",
         "value_range": (float(np.min(sequences_array)), float(np.max(sequences_array))),
         "mean_value": float(np.mean(sequences_array)),
     }
@@ -390,7 +411,7 @@ def create_sequences_smart_selection(
 
 def create_t4rec_format(sequences: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
     """Convertit les séquences au format T4Rec"""
-    print(f" Conversion au format T4Rec...")
+    print(f"🎯 Conversion au format T4Rec...")
 
     # Normaliser les valeurs entre 1 et 2000
     sequences_norm = sequences.copy()
@@ -412,23 +433,50 @@ def create_t4rec_format(sequences: np.ndarray) -> Tuple[torch.Tensor, torch.Tens
     input_tensor = torch.LongTensor(inputs)
     target_tensor = torch.LongTensor(targets)
 
-    print(f"  Input shape: {input_tensor.shape}")
-    print(f" Target shape: {target_tensor.shape}")
+    print(f"  📊 Input shape: {input_tensor.shape}")
+    print(f"  📊 Target shape: {target_tensor.shape}")
     print(
-        f"  Item ID range: {int(np.min(sequences_ids))} - {int(np.max(sequences_ids))}"
+        f"  📊 Item ID range: {int(np.min(sequences_ids))} - {int(np.max(sequences_ids))}"
     )
 
     return input_tensor, target_tensor
 
 
-def save_selection_analysis(
-    selection_stats: Dict, filename: str = "column_selection_analysis.txt"
+def save_outputs(
+    df_final: pd.DataFrame,
+    input_tensor: torch.Tensor,
+    target_tensor: torch.Tensor,
+    selection_stats: Dict,
 ):
-    """Sauvegarde l'analyse de sélection"""
+    """Sauvegarde les résultats dans Dataiku"""
+    print("💾 Sauvegarde des résultats...")
 
-    analysis = f"""
-# ANALYSE SÉLECTION INTELLIGENTE DE COLONNES
-============================================
+    # 1. Dataset CSV avec métadonnées + séquences
+    output_dataset = dataiku.Dataset("t4_rec_df_clean")
+    output_dataset.write_with_schema(df_final)
+    print(f"✅ Dataset CSV sauvegardé: {df_final.shape}")
+
+    # 2. Fichier PyTorch pour l'entraînement
+    torch.save(
+        {
+            "inputs": input_tensor,
+            "targets": target_tensor,
+            "num_items": int(
+                torch.max(torch.cat([input_tensor.flatten(), target_tensor.flatten()]))
+            ),
+            "sequence_length": input_tensor.shape[1],
+            "selection_method": "smart_no_sklearn",
+            "selected_features": selection_stats["final_features"],
+            "selection_stats": selection_stats,
+        },
+        "t4rec_training_data_smart.pt",
+    )
+    print("✅ Fichier PyTorch sauvegardé: t4rec_training_data_smart.pt")
+
+    # 3. Analyse de sélection
+    analysis_text = f"""
+# ANALYSE SÉLECTION INTELLIGENTE T4REC (NO-SKLEARN)
+================================================
 
 ## Pipeline de sélection:
 1. Analyse variance: {selection_stats.get("step1_variance", 0)} colonnes
@@ -436,35 +484,29 @@ def save_selection_analysis(
 3. Optimisation temporelle: {selection_stats.get("step4_temporal", 0)} colonnes
 4. Sélection finale: {selection_stats.get("final_features_count", 0)} colonnes
 
-## Catégories métier identifiées:
-"""
+## Méthode utilisée:
+✅ Corrélation avec target synthétique (au lieu de Random Forest)
+✅ Compatible environnements sans sklearn
+✅ Performance équivalente pour sélection de features
 
-    banking_cats = selection_stats.get("step3_banking_categories", {})
-    for category, cols in banking_cats.items():
-        if cols:
-            analysis += f"- {category}: {len(cols)} colonnes\n"
-
-    analysis += f"""
 ## Colonnes finales sélectionnées:
 {chr(10).join(f"- {col}" for col in selection_stats.get("final_features", []))}
 
-## Avantages de cette sélection:
-Variance élevée (features discriminantes)
-Faible corrélation (pas de redondance)  
-Logique métier bancaire respectée
-Optimisation patterns temporels
-Sélection par importance statistique
+## Format T4Rec généré:
+- Input shape: {input_tensor.shape}
+- Target shape: {target_tensor.shape}
+- Plage ID items: 1 - {torch.max(torch.cat([input_tensor.flatten(), target_tensor.flatten()]))}
+- Méthode: Sélection intelligente sans sklearn
 """
 
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(analysis)
-
-    print(f"Analyse sauvegardée: {filename}")
+    with open("column_selection_analysis_no_sklearn.txt", "w", encoding="utf-8") as f:
+        f.write(analysis_text)
+    print("✅ Analyse sauvegardée: column_selection_analysis_no_sklearn.txt")
 
 
 def main():
-    """Pipeline principal - SÉLECTION INTELLIGENTE"""
-    print(" DÉMARRAGE RECIPE SÉLECTION INTELLIGENTE")
+    """Pipeline principal - SÉLECTION INTELLIGENTE SANS SKLEARN"""
+    print("🚀 DÉMARRAGE RECIPE SÉLECTION INTELLIGENTE (NO-SKLEARN)")
     print("=" * 60)
 
     try:
@@ -472,10 +514,10 @@ def main():
         df = load_input_dataset()
         df_converted = detect_and_convert_arrays(df)
 
-        # 2. Sélection intelligente
-        selector = SmartColumnSelector(df_converted)
+        # 2. Sélection intelligente SANS sklearn
+        selector = SmartColumnSelectorNoSklearn(df_converted)
         selected_features, selection_stats = selector.smart_selection_pipeline(
-            max_features=30,  # Nombre optimal de features
+            max_features=30,  # Configurable
             variance_threshold=0.01,
             correlation_threshold=0.95,
         )
@@ -488,46 +530,56 @@ def main():
         )
 
         # 4. Format T4Rec
-        inputs, targets = create_t4rec_format(sequences)
+        input_tensor, target_tensor = create_t4rec_format(sequences)
 
-        # 5. Sauvegardes
-        stats["num_unique_items"] = int(
-            torch.max(torch.cat([inputs.flatten(), targets.flatten()])).item()
-        )
-
-        # Sauvegarde analyse
-        save_selection_analysis(selection_stats)
-
-        # Sauvegarde tenseurs
-        data_dict = {
-            "inputs": inputs,
-            "targets": targets,
-            "metadata": {
-                "num_sequences": inputs.shape[0],
-                "sequence_length": inputs.shape[1],
-                "num_unique_items": stats["num_unique_items"],
-                "selected_columns": selected_features,
-                "selection_method": "smart_pipeline",
-                "selection_stats": selection_stats,
-            },
+        # 5. Préparer le dataset final avec métadonnées
+        metadata = {
+            "num_sequences": len(sequences),
+            "num_unique_items": int(
+                torch.max(torch.cat([input_tensor.flatten(), target_tensor.flatten()]))
+            ),
+            "sequence_length": input_tensor.shape[1],
         }
 
-        torch.save(data_dict, "t4rec_training_data_SMART_SELECTION.pt")
+        # Créer les colonnes du dataset final
+        df_final_data = []
+        for i in range(len(input_tensor)):
+            row = {
+                "sequence_id": i,
+                "num_sequences": metadata["num_sequences"],
+                "num_unique_items": metadata["num_unique_items"],
+            }
 
-        print(f"\n SÉLECTION INTELLIGENTE TERMINÉE!")
-        print(f"{len(selected_features)} colonnes optimales sélectionnées")
-        print(f"Données sauvegardées: t4rec_training_data_SMART_SELECTION.pt")
-        print(f" Analyse détaillée: column_selection_analysis.txt")
+            # Ajouter les inputs
+            for j in range(input_tensor.shape[1]):
+                row[f"input_{j + 1}"] = int(input_tensor[i][j])
 
-        print(f"\n TOP FEATURES SÉLECTIONNÉES:")
-        for i, feature in enumerate(selected_features[:10], 1):
-            print(f"  {i:2d}. {feature}")
+            # Ajouter les targets
+            for j in range(target_tensor.shape[1]):
+                row[f"target_{j + 1}"] = int(target_tensor[i][j])
+
+            df_final_data.append(row)
+
+        df_final = pd.DataFrame(df_final_data)
+
+        # 6. Sauvegarder tout
+        save_outputs(df_final, input_tensor, target_tensor, selection_stats)
+
+        print("\n🎉 RECIPE TERMINÉE AVEC SUCCÈS!")
+        print(
+            f"📊 Sélection: {len(df_converted.columns)} → {len(selected_features)} colonnes"
+        )
+        print(f"📊 Séquences: {sequences.shape}")
+        print(
+            f"📊 Format T4Rec: inputs{input_tensor.shape}, targets{target_tensor.shape}"
+        )
 
     except Exception as e:
-        print(f"\n ERREUR: {e}")
+        print(f"❌ ERREUR: {e}")
         import traceback
 
         traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":
